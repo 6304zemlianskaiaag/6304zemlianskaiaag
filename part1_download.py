@@ -4,81 +4,53 @@ import csv
 import json
 import os
 import random
-
 import requests
 
-
-with open('MetObjects.csv', encoding='utf-8-sig') as file:
+id_paint = []
+with open('MetObjects.csv', mode='r', newline='', encoding='utf-8') as file:
     reader = csv.DictReader(file)
-    painting_object_n = []
     for row in reader:
-        if row['Classification'] == 'Paintings':
-            painting_object_n.append(row['Object Number'])
+        if row.get('Classification') == 'Paintings':
+            id_paint.append(row['Object ID'])
 
-print(f"Всего картин в списке: {len(painting_object_n)}")
+print(f"Всего картин в списке: {len(id_paint)}")
 
-max_attempts = 30
+max_ = 30
 found = False
-for i in range(max_attempts):
-    random_object = random.choice(painting_object_n)
-    print(f"\nПопытка {i + 1}: пробуем номер {random_object}")
-
-    # Ищем числовой ID по этому номеру
-    search_url = (
-        f"https://collectionapi.metmuseum.org/public/collection/v1/"
-        f"search?q={random_object}&hasImages=true"
-    )
-
+for i in range(max_):
+    random_id = random.choice(id_paint)
+    print(f"Попытка {i + 1}: пробуем номер {random_id}")
+    url_ = f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{random_id}"
     try:
-        search_response = requests.get(search_url)
-        search_response.raise_for_status()
-        search_data = search_response.json()
+        detail_ = requests.get(url_)
+        detail_.raise_for_status()
+        data = detail_.json()
+        image_url = data.get('primaryImage')
 
-        # Если нашли ID
-        if search_data['total'] > 0 and search_data.get('objectIDs'):
-            object_id = search_data['objectIDs'][0]
-            print(f"Найден ID: {object_id}")
-
-            # Получаем подробную информацию по ID
-            detail_url = (
-                f"https://collectionapi.metmuseum.org/public/collection/v1/"
-                f"objects/{object_id}"
-            )
-            detail_response = requests.get(detail_url)
-            detail_response.raise_for_status()
-            data = detail_response.json()
-
-            # Проверяем, есть ли фото
-            image_url = data.get('primaryImage')
-            if image_url:
-                print(f"Фото: {image_url}")
-                found = True
-                break
-            else:
-                print("У этого объекта нет фото")
+        if image_url:
+            print(f"Нашли фото: {image_url}")
+            found = True
+            break
         else:
-            print("Номер не найден в API")
+            print("У этого объекта нет фото")
     except Exception as e:
         print(f"Ошибка: {e}")
 
 if not found:
-    print(f"\nНе удалось найти картину с фото за {max_attempts} попыток")
+    print(f"Не удалось найти картину за {max_} попыток")
     exit()
 
-# Создаём папку для картинок
 os.makedirs('paintings', exist_ok=True)
+img_filename = os.path.join('paintings', f"{random_id}.jpg")
+img_ = requests.get(image_url, stream=True)
 
-# Сохраняем картинку
-img_filename = os.path.join('paintings', f"{object_id}.jpg")
-img_response = requests.get(image_url, stream=True)
-with open(img_filename, 'wb') as f:
-    for chunk in img_response.iter_content(chunk_size=8192):
+with open(img_filename, 'wb') as f:  # 'wb' = write binary
+    for chunk in img_.iter_content(chunk_size=8192):
         f.write(chunk)
-
 print(f"Изображение сохранено: {img_filename}")
 
-# Сохраняем метаданные
-json_filename = os.path.join('paintings', f"{object_id}.json")
+
+json_filename = os.path.join('paintings', f"{random_id}.json")
 with open(json_filename, 'w', encoding='utf-8') as f:
     json.dump(data, f, indent=2, ensure_ascii=False)
 
