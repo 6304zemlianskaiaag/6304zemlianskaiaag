@@ -5,7 +5,7 @@ import numpy as np
 import os
 import time
 
-image_id = "437500"
+image_id = "437877"
 input_path = f"paintings/{image_id}.jpg"
 output_dir = "paintings"
 
@@ -13,7 +13,7 @@ def halftone_(img):
     gray = (0.299 * img[:, :, 2] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 0])
     return np.clip(gray, 0, 255).astype(np.uint8)
 
-def svertka_(image, kernel):
+def svertka_2(image, kernel):
     if len(image.shape) == 3:
         h, w, c = image.shape
         kh, kw = kernel.shape
@@ -41,7 +41,25 @@ def svertka_(image, kernel):
                 region = padded[y:y + kh, x:x + kw]
                 result[y, x] = np.sum(region * kernel)
         return result
-
+def svertka_(image, kernel):
+    if len(image.shape) == 2:
+        h, w = image.shape
+        kh, kw = kernel.shape
+        h_pad, w_pad = kh // 2, kw // 2
+        padded = np.pad(image, ((h_pad, h_pad), (w_pad, w_pad)), mode='constant')
+        result = np.zeros((h, w))
+        for y in range(h):
+            for x in range(w):
+                region = padded[y:y + kh, x:x + kw]
+                result[y, x] = np.sum(region * kernel)
+        return result
+    elif len(image.shape) == 3:
+        h, w, c = image.shape
+        result = np.zeros((h, w, c))
+        for channel in range(c):
+            single_channel = image[:, :, channel]
+            result[:, :, channel] = svertka_(single_channel, kernel)
+        return result
 def gauss_(image, size=5, sigma=1.0):
     center = size // 2
     x, y = np.meshgrid(np.arange(size) - center, np.arange(size) - center)
@@ -154,3 +172,4 @@ print(f"Найдено углов: {corners_count}")
 
 cv2.imwrite(f"{output_dir}/{image_id}_harris.jpg", img_harris)
 
+"# New comment" 
