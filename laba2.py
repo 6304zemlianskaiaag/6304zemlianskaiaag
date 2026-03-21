@@ -126,17 +126,47 @@ class Artwork:
         return result
 
     def __add__(self, other: Union['Artwork', int, float]) -> 'Artwork':
-        new_object = Artwork()
         if isinstance(other, (int, float)):
             result = np.clip(self.img.astype(np.int16) + other, 0, 255).astype(np.uint8)
+            new_object = Artwork()
             new_object.img = result
             return new_object
-        elif isinstance(other, Artwork):
-            if self.img.shape != other.img.shape:
-                raise ValueError(f"Размеры изображений не совпадают!")
-            result = np.clip((self.img.astype(np.int16) + other.img.astype(np.int16)) // 2, 0, 255).astype(np.uint8)
+
+        if isinstance(other, Artwork):
+            # Получаем максимальные размеры
+            h = max(self.img.shape[0], other.img.shape[0])
+            w = max(self.img.shape[1], other.img.shape[1])
+
+            if len(self.img.shape) == 3:
+                c1 = 3
+            else:
+                c1 = 1
+            if len(self.img.shape) == 3:
+                c2 = 3
+            else:
+                c2 = 1
+            c = max(c1, c2)
+
+            canvas = np.zeros((h, w, c))
+
+            img1 = self.img.astype(np.float32)
+            img2 = other.img.astype(np.float32)
+
+            if img1.ndim == 2:
+                img1 = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR)
+            if img2.ndim == 2:
+                img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
+
+
+            canvas[:self.img.shape[0], :self.img.shape[1]] += img1
+            canvas[:other.img.shape[0], :other.img.shape[1]] += img2
+            result = np.clip(canvas, 0, 255).astype(np.uint8)
+
+            new_object = Artwork()
             new_object.img = result
             return new_object
+
+
 
     def __radd__(self, other: Union[int, float]) -> 'Artwork':
         return self.__add__(other)
@@ -324,11 +354,11 @@ def main():
     art1.img = cv2.imread("paintings/73370.jpg")
 
     art2 = Artwork()
-    art2.img = cv2.imread("paintings/sobel_73370.jpg")
+    art2.img = cv2.imread("paintings/45704.jpg")
     # Смешиваем (усредняем)
     mixed = art1 + art2
     # Сохраняем
-    cv2.imwrite("paintings/mixed.jpg", mixed.img)
+    cv2.imwrite("paintings/mixed3.jpg", mixed.img)
 
 if __name__ == "__main__":
     main()
