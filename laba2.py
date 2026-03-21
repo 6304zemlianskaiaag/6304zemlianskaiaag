@@ -72,26 +72,13 @@ class Artwork:
         self.__object_id = value
 
     def halftone_(self) -> np.ndarray:
-        if self.__img is None:
-            raise ValueError("Изображение не загружено")
-
-        if len(self.__img.shape) == 2:
+        if len(self.__img.shape) == 3:
+         gray = (0.299 * self.__img[:, :, 2] + 0.587 * self.__img[:, :, 1] + 0.114 * self.__img[:, :, 0])
+         return np.clip(gray, 0, 255).astype(np.uint8)
+        else:
             return self.__img.copy()
 
-        gray = (0.299 * self.__img[:, :, 2] +    # R
-                0.587 * self.__img[:, :, 1] +    # G
-                0.114 * self.__img[:, :, 0])     # B
-        return np.clip(gray, 0, 255).astype(np.uint8)
-
     def svertka_(self, kernel: Optional[np.ndarray] = None) -> np.ndarray:
-        if self.__img is None:
-            raise ValueError("Изображение не загружено")
-
-        if kernel is None:
-            if self.__kernel is None:
-                kernel = np.full((3, 3), 1/9, dtype=np.float32)
-            else:
-                kernel = self.__kernel
         if len(self.__img.shape) == 2:
             h, w = self.__img.shape
             kh, kw = kernel.shape
@@ -112,8 +99,6 @@ class Artwork:
                 temp.__img = single_channel
                 result[:, :, channel] = temp.svertka_(kernel)
             return np.clip(result, 0, 255).astype(np.uint8)
-
-        raise ValueError("Неподдерживаемая размерность")
 
     def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
         center = size // 2
@@ -141,29 +126,22 @@ class Artwork:
         return result
 
     def __add__(self, other: Union['Artwork', int, float]) -> 'Artwork':
-        if self.img is None:
-            raise ValueError("Изображение не загружено")
         new_object = Artwork()
         if isinstance(other, (int, float)):
             result = np.clip(self.img.astype(np.int16) + other, 0, 255).astype(np.uint8)
             new_object.img = result
             return new_object
         elif isinstance(other, Artwork):
-            if other.img is None:
-                raise ValueError("Второе изображение не загружено")
             if self.img.shape != other.img.shape:
                 raise ValueError(f"Размеры изображений не совпадают!")
             result = np.clip((self.img.astype(np.int16) + other.img.astype(np.int16)) // 2, 0, 255).astype(np.uint8)
             new_object.img = result
             return new_object
-        raise ValueError('Нет возможности сложить')
 
     def __radd__(self, other: Union[int, float]) -> 'Artwork':
         return self.__add__(other)
 
     def __str__(self) -> str:
-        if self.img is None:
-            raise ValueError("Изображение не загружено")
         return f"Изображение (ID: {self.object_id}, размер:{self.img.shape})"
 @dataclass
 class ImageProcessor:
@@ -177,24 +155,17 @@ class ImageProcessor:
 
     def _get_painting_ids(self, csv_path: str = 'MetObjects.csv') -> List[str]:
         painting_ids = []
-        if not os.path.exists(csv_path):
-            print(f"Файл {csv_path} не найден!")
-            exit()
         try:
             with open(csv_path, mode='r', newline='', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
                 for row in reader:
                     if row.get('Classification') == 'Paintings':
                         painting_ids.append(row['Object ID'])
-
             print(f"Найдено {len(painting_ids)} картин")
-
             if not painting_ids:
                 print(" нет картин ")
                 exit()
-
             return painting_ids
-
         except Exception as e:
             print(f"{e}")
             exit()
@@ -325,26 +296,23 @@ class ImageProcessor:
                 f")")
 def main():
     proc = ImageProcessor()
-    print(proc)
-
     proc.load_metadata_batch(count=1)
 
     if proc.artworks:
         proc.load_images()
 
-        # GRAYSCALE - сохраняем с prefix 'gray'
         proc.process_all('gray')
         proc.save_result(prefix='gray')
 
-        # GAUSS - сохраняем с prefix 'gauss'
+
         proc.process_all('gauss', size=5, sigma=1.0)
         proc.save_result(prefix='gauss')
 
-        # SOBEL - сохраняем с prefix 'sobel'
+
         proc.process_all('sobel')
         proc.save_result(prefix='sobel')
 
-        # Показываем, что сохранилось
+
         print(" Сохраненные файлы:")
         for file in os.listdir('paintings'):
             if file.endswith('.jpg'):
@@ -352,8 +320,15 @@ def main():
 
     else:
         print(" Не удалось загрузить картины")
-    proc.save_metadata()
+    art1 = Artwork()
+    art1.img = cv2.imread("paintings/73370.jpg")
 
+    art2 = Artwork()
+    art2.img = cv2.imread("paintings/sobel_73370.jpg")
+    # Смешиваем (усредняем)
+    mixed = art1 + art2
+    # Сохраняем
+    cv2.imwrite("paintings/mixed.jpg", mixed.img)
 
 if __name__ == "__main__":
     main()
