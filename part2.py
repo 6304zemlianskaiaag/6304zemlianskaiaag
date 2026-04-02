@@ -5,7 +5,7 @@ import numpy as np
 import os
 import time
 
-image_id = "437877"
+image_id = "73370"
 input_path = f"paintings/{image_id}.jpg"
 output_dir = "paintings"
 
