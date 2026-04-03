@@ -1,7 +1,6 @@
 
 import cv2
 import csv
-import json
 import os
 import random
 import requests
@@ -10,6 +9,8 @@ import time
 from typing import Optional, Dict, Any, Union, List
 from dataclasses import dataclass, field
 import functools
+from abc import ABC, abstractmethod
+
 
 def time_method(func):
     @functools.wraps(func)
@@ -19,9 +20,12 @@ def time_method(func):
         end = time.perf_counter()
         print(f" Время выполнения {func.__name__}: {end - start:.2f} сек.")
         return result
+
     return wrapper
 
-class Artwork:
+
+
+class Artwork(ABC):
     __slots__ = ('__img', '__metadata', '__kernel', '__object_id', '__image_url')
 
     def __init__(self) -> None:
@@ -30,110 +34,59 @@ class Artwork:
         self.__kernel = None
         self.__object_id = None
         self.__image_url = None
+    @abstractmethod
+    def halftone_(self) -> np.ndarray:
+        pass
+    @abstractmethod
+    def svertka_(self, kernel: Optional[np.ndarray] = None) -> np.ndarray:
+        pass
+    @abstractmethod
+    def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
+        pass
+    @abstractmethod
+    def sobel_(self) -> np.ndarray:
+        pass
 
     @property
     def img(self) -> Optional[np.ndarray]:
         return self.__img
-
     @img.setter
     def img(self, val: Optional[np.ndarray]) -> None:
         if val is not None and not isinstance(val, np.ndarray):
-            raise TypeError(" Ошибка!!!")
+            raise TypeError("Ошибка!!!")
         self.__img = val
-
     @property
     def metadata(self) -> Optional[Dict[str, Any]]:
         return self.__metadata
-
     @metadata.setter
     def metadata(self, value: Optional[Dict[str, Any]]) -> None:
         self.__metadata = value
-
     @property
     def kernel(self) -> Optional[np.ndarray]:
         if self.__kernel is not None:
             return self.__kernel
-        raise ValueError(' Ошибка!!!')
-
+        raise ValueError('Ошибка!!!')
     @kernel.setter
     def kernel(self, matrix: np.ndarray) -> None:
         h, w = matrix.shape
         if h == w:
             self.__kernel = matrix
         else:
-            raise ValueError(' Ошибка!!!')
-
+            raise ValueError('Ошибка!!!')
     @property
     def object_id(self) -> Optional[str]:
         return self.__object_id
-
     @object_id.setter
     def object_id(self, value: str) -> None:
         self.__object_id = value
-
-    def halftone_(self) -> np.ndarray:
-        if len(self.__img.shape) == 3:
-         gray = (0.299 * self.__img[:, :, 2] + 0.587 * self.__img[:, :, 1] + 0.114 * self.__img[:, :, 0])
-         return np.clip(gray, 0, 255).astype(np.uint8)
-        else:
-            return self.__img.copy()
-
-    def svertka_(self, kernel: Optional[np.ndarray] = None) -> np.ndarray:
-        if len(self.__img.shape) == 2:
-            h, w = self.__img.shape
-            kh, kw = kernel.shape
-            h_pad, w_pad = kh // 2, kw // 2
-            padded = np.pad(self.__img, ((h_pad, h_pad), (w_pad, w_pad)), mode='constant')
-            result = np.zeros((h, w), dtype=np.float32)
-            for y in range(h):
-                for x in range(w):
-                    region = padded[y:y + kh, x:x + kw]
-                    result[y, x] = np.sum(region * kernel)
-            return np.clip(result, 0, 255).astype(np.uint8)
-        elif len(self.__img.shape) == 3:
-            h, w, c = self.__img.shape
-            result = np.zeros((h, w, c), dtype=np.float32)
-            for channel in range(c):
-                single_channel = self.__img[:, :, channel]
-                temp = Artwork()
-                temp.__img = single_channel
-                result[:, :, channel] = temp.svertka_(kernel)
-            return np.clip(result, 0, 255).astype(np.uint8)
-
-    def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
-        center = size // 2
-        x, y = np.meshgrid(np.arange(size) - center, np.arange(size) - center)
-        kernel = np.exp(-(x**2 + y**2) / (2 * sigma**2))
-        kernel = kernel / kernel.sum()
-        return self.svertka_(kernel)
-
-    def sobel_(self) -> np.ndarray:
-        if self.__img is None:
-            raise ValueError("Изображение не загружено")
-        kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
-        kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
-        if len(self.__img.shape) == 3:
-            gray_image = self.halftone_()
-        else:
-            gray_image = self.__img.copy()
-        temp = Artwork()
-        temp.__img = gray_image
-        grad_x = temp.svertka_(kernel_x)
-        grad_y = temp.svertka_(kernel_y)
-        result = np.sqrt(grad_x ** 2 + grad_y ** 2)
-        if result.max() > 0:
-            result = (result / result.max() * 255).astype(np.uint8)
-        return result
-
     def __add__(self, other: Union['Artwork', int, float]) -> 'Artwork':
         if isinstance(other, (int, float)):
             result = np.clip(self.img.astype(np.int16) + other, 0, 255).astype(np.uint8)
-            new_object = Artwork()
+            new_object = self.__class__()
             new_object.img = result
             return new_object
 
         if isinstance(other, Artwork):
-            # Получаем максимальные размеры
             h = max(self.img.shape[0], other.img.shape[0])
             w = max(self.img.shape[1], other.img.shape[1])
 
@@ -141,13 +94,13 @@ class Artwork:
                 c1 = 3
             else:
                 c1 = 1
-            if len(self.img.shape) == 3:
+            if len(other.img.shape) == 3:
                 c2 = 3
             else:
                 c2 = 1
             c = max(c1, c2)
 
-            canvas = np.zeros((h, w, c))
+            board = np.zeros((h, w, c), dtype=np.float32)
 
             img1 = self.img.astype(np.float32)
             img2 = other.img.astype(np.float32)
@@ -157,22 +110,135 @@ class Artwork:
             if img2.ndim == 2:
                 img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
 
+            board[:self.img.shape[0], :self.img.shape[1]] += img1
+            board[:other.img.shape[0], :other.img.shape[1]] += img2
+            result = np.clip(board, 0, 255).astype(np.uint8)
 
-            canvas[:self.img.shape[0], :self.img.shape[1]] += img1
-            canvas[:other.img.shape[0], :other.img.shape[1]] += img2
-            result = np.clip(canvas, 0, 255).astype(np.uint8)
-
-            new_object = Artwork()
+            new_object = self.__class__()
             new_object.img = result
             return new_object
-
-
 
     def __radd__(self, other: Union[int, float]) -> 'Artwork':
         return self.__add__(other)
 
     def __str__(self) -> str:
-        return f"Изображение (ID: {self.object_id}, размер:{self.img.shape})"
+        return f"{self.__class__.__name__} (ID: {self.object_id}, размер: {self.img.shape})"
+
+
+
+class GrayscaleArtwork(Artwork):
+    __slots__ = ('_image_type',)
+    def __init__(self, image: Optional[np.ndarray] = None) -> None:
+        super().__init__()
+        if image is not None:
+            if len(image.shape) == 3:
+                self.img = self._to_grayscale(image)
+            else:
+                self.img = image.copy()
+        self._image_type = "grayscale"
+
+    def _to_grayscale(self, img: np.ndarray) -> np.ndarray:
+        gray = (0.299 * img[:, :, 2] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 0])
+        return np.clip(gray, 0, 255).astype(np.uint8)
+
+    def halftone_(self) -> np.ndarray:
+        return self.img.copy()
+
+    def svertka_(self, kernel: Optional[np.ndarray] = None) -> np.ndarray:
+        if len(self.img.shape) == 2:
+            h, w = self.img.shape
+            kh, kw = kernel.shape
+            h_pad, w_pad = kh // 2, kw // 2
+            padded = np.pad(self.img, ((h_pad, h_pad), (w_pad, w_pad)), mode='constant')
+            result = np.zeros((h, w), dtype=np.float32)
+            for y in range(h):
+                for x in range(w):
+                    region = padded[y:y + kh, x:x + kw]
+                    result[y, x] = np.sum(region * kernel)
+            return result
+
+    def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
+        center = size // 2
+        x, y = np.meshgrid(np.arange(size) - center, np.arange(size) - center)
+        kernel = np.exp(-(x ** 2 + y ** 2) / (2 * sigma ** 2))
+        kernel = kernel / kernel.sum()
+        result = self.svertka_(kernel)
+        return np.clip(result, 0, 255).astype(np.uint8)
+
+    def sobel_(self) -> np.ndarray:
+        kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+        kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
+
+        grad_x = self.svertka_(kernel_x)
+        grad_y = self.svertka_(kernel_y)
+
+        result = np.sqrt(grad_x ** 2 + grad_y ** 2)
+
+        if result.max() > 0:
+            result = (result / result.max() * 255).astype(np.uint8)
+        return result
+
+
+class ColorArtwork(Artwork):
+    __slots__ = ('_image_type',)
+    def __init__(self, image: Optional[np.ndarray] = None) -> None:
+        super().__init__()
+        if image is not None:
+            if len(image.shape) == 2:
+                self.img = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            else:
+                self.img = image.copy()
+        self._image_type = "color"
+
+    def halftone_(self) -> np.ndarray:
+        if len(self.img.shape) == 3:
+            gray = (0.299 * self.img[:, :, 2] + 0.587 * self.img[:, :, 1] + 0.114 * self.img[:, :, 0])
+            return np.clip(gray, 0, 255).astype(np.uint8)
+        else:
+            return self.img.copy()
+
+    def svertka_(self, kernel: Optional[np.ndarray] = None) -> np.ndarray:
+        if len(self.img.shape) == 2:
+            h, w = self.img.shape
+            kh, kw = kernel.shape
+            h_pad, w_pad = kh // 2, kw // 2
+            padded = np.pad(self.img, ((h_pad, h_pad), (w_pad, w_pad)), mode='constant')
+            result = np.zeros((h, w), dtype=np.float32)
+            for y in range(h):
+                for x in range(w):
+                    region = padded[y:y + kh, x:x + kw]
+                    result[y, x] = np.sum(region * kernel)
+            return result
+        elif len(self.img.shape) == 3:
+            h, w, c = self.img.shape
+            result = np.zeros((h, w, c), dtype=np.float32)
+            for channel in range(c):
+                single_channel = self.img[:, :, channel]
+                temp = GrayscaleArtwork()
+                temp.img = single_channel
+                result[:, :, channel] = temp.svertka_(kernel)
+            return result
+    def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
+        """Фильтр Гаусса для цветного изображения"""
+        center = size // 2
+        x, y = np.meshgrid(np.arange(size) - center, np.arange(size) - center)
+        kernel = np.exp(-(x ** 2 + y ** 2) / (2 * sigma ** 2))
+        kernel = kernel / kernel.sum()
+        result = self.svertka_(kernel)
+        return np.clip(result, 0, 255).astype(np.uint8)
+
+    def sobel_(self) -> np.ndarray:
+        """Оператор Собеля для цветного (применяется к серой версии)"""
+        if self.img is None:
+            raise ValueError("Изображение не загружено")
+
+        # Для цветного сначала преобразуем в серое
+        gray_img = self.halftone_()
+        temp = GrayscaleArtwork(gray_img)
+        return temp.sobel_()
+
+
+
 @dataclass
 class ImageProcessor:
     artworks: List[Artwork] = field(default_factory=list)
@@ -181,7 +247,7 @@ class ImageProcessor:
 
     def __post_init__(self) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
-        print(f" ImageProcessor создан. Папка: {self.output_dir}")
+        print(f"ImageProcessor создан. Папка: {self.output_dir}")
 
     def _get_painting_ids(self, csv_path: str = 'MetObjects.csv') -> List[str]:
         painting_ids = []
@@ -193,7 +259,7 @@ class ImageProcessor:
                         painting_ids.append(row['Object ID'])
             print(f"Найдено {len(painting_ids)} картин")
             if not painting_ids:
-                print(" нет картин ")
+                print("нет картин")
                 exit()
             return painting_ids
         except Exception as e:
@@ -201,12 +267,13 @@ class ImageProcessor:
             exit()
 
     @time_method
-    def load_metadata_batch(self, count: int = 1, csv_path: str = 'MetObjects.csv') -> None:
-        print(f"\nЗагрузка метаданных ({count} )")
+    def load_metadata(self, count: int = 1, csv_path: str = 'MetObjects.csv') -> None:
+        print(f"\nЗагрузка метаданных ({count})")
         painting_ids = self._get_painting_ids(csv_path)
         if not painting_ids:
             print("Нет ID")
             return
+
         loaded = 0
         attempts = 0
         max_attempts = count * 10
@@ -225,7 +292,8 @@ class ImageProcessor:
                     print("    У этого объекта нет фото")
                     continue
 
-                artwork = Artwork()
+                # Создаём цветной объект (по умолчанию)
+                artwork = ColorArtwork()
                 artwork.object_id = random_id
                 artwork.metadata = data
                 artwork._Artwork__image_url = data.get('primaryImage')
@@ -241,7 +309,7 @@ class ImageProcessor:
 
     @time_method
     def load_images(self) -> None:
-        print("\n Загрузка изображений")
+        print("\nЗагрузка изображений")
         for i, artwork in enumerate(self.artworks):
             print(f"  Загрузка изображения {i + 1}")
 
@@ -257,59 +325,49 @@ class ImageProcessor:
             artwork.img = cv2.imread(filename)
             print(f"Загружено: {artwork.img.shape}")
 
-        print(" Изображения загружены!")
-
-    def save_metadata(self, save_dir: str = 'paintings') -> None:
-        print("\n Сохранение метаданных")
-        os.makedirs(save_dir, exist_ok=True)
-        for artwork in self.artworks:
-            filename = os.path.join(save_dir, f"{artwork.object_id}.json")
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(artwork.metadata, f, indent=2, ensure_ascii=False)
-            print(f" {filename}")
-        print(" Метаданные сохранены!")
+        print("Изображения загружены!")
 
     @time_method
     def process_all(self, filter_type: str, **params: Any) -> List[Artwork]:
         self.processed = []
-        print(f"\n Применен метод: {filter_type}")
+        print(f"\nПрименен метод: {filter_type}")
+
         for i, artwork in enumerate(self.artworks):
             print(f"  Обработка изображения {i + 1}")
             try:
-                if filter_type == 'gray':
+                if filter_type == 'halftone_':
                     result = artwork.halftone_()
-                    print(" Применен halftone_ ")
-
+                    print("  Применен halftone_")
                 elif filter_type == 'gauss':
                     size = params.get('size', 5)
                     sigma = params.get('sigma', 1.0)
                     result = artwork.gauss_(size=size, sigma=sigma)
-                    print("Применен gauss_")
-
+                    print("  Применен gauss_")
                 elif filter_type == 'sobel':
                     result = artwork.sobel_()
-                    print("    Применен sobel_")
+                    print("  Применен sobel_")
                 else:
                     raise ValueError(f'Неизвестный фильтр: {filter_type}')
 
-                print(" Обработка  применена к изображению!")
+                if len(result.shape) == 2:
+                    result_artwork = GrayscaleArtwork(result)
+                else:
+                    result_artwork = ColorArtwork(result)
 
-                result_artwork = Artwork()
-                result_artwork.img = result
                 result_artwork.metadata = artwork.metadata
                 result_artwork.object_id = artwork.object_id
 
                 self.processed.append(result_artwork)
 
             except Exception as e:
-                print(f"{e}")
+                print(f"  {e}")
 
-        print(f" Обработано {len(self.processed)} изображений")
+        print(f"Обработано {len(self.processed)} изображений")
         return self.processed
 
     @time_method
     def save_result(self, prefix: str = 'processed') -> None:
-        print(f" Сохранение результатов ( {prefix}")
+        print(f"Сохранение результатов ({prefix})")
         for i, artwork in enumerate(self.processed):
             if artwork.img is None:
                 continue
@@ -326,39 +384,65 @@ class ImageProcessor:
                 f")")
 def main():
     proc = ImageProcessor()
-    proc.load_metadata_batch(count=1)
+    proc.load_metadata(count=1)
 
     if proc.artworks:
         proc.load_images()
 
-        proc.process_all('gray')
-        proc.save_result(prefix='gray')
+        # Сохраняем результаты от OpenCV для сравнения
+        for idx, artwork in enumerate(proc.artworks):
+            img = artwork.img
+            object_id = artwork.object_id
 
+            # Сохраняем результаты OpenCV
+            cv2_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            cv2.imwrite(f"paintings/{object_id}_halftone_cv2.jpg", cv2_gray)
+
+            size, sigma = 5, 1.0
+            center = size // 2
+            x, y = np.meshgrid(np.arange(size) - center, np.arange(size) - center)
+            gauss_kernel = np.exp(-(x ** 2 + y ** 2) / (2 * sigma ** 2))
+            gauss_kernel = gauss_kernel / gauss_kernel.sum()
+            cv2_gauss = cv2.filter2D(img, -1, gauss_kernel)
+            cv2.imwrite(f"paintings/{object_id}_gauss_cv2.jpg", cv2_gauss)
+
+            kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
+            kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
+            gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            sobelx = cv2.filter2D(gray_img, cv2.CV_32F, kernel_x)
+            sobely = cv2.filter2D(gray_img, cv2.CV_32F, kernel_y)
+            cv2_sobel = np.sqrt(sobelx ** 2 + sobely ** 2)
+            cv2_sobel = (cv2_sobel / cv2_sobel.max() * 255).astype(np.uint8)
+            cv2.imwrite(f"paintings/{object_id}_sobel_cv2.jpg", cv2_sobel)
+
+            canny_result = cv2.Canny(cv2_gray, 50, 150)
+            cv2.imwrite(f"paintings/{object_id}_canny.jpg", canny_result)
+
+            gray_float = np.float32(cv2_gray)
+            harris = cv2.cornerHarris(gray_float, 2, 3, 0.04)
+            harris = cv2.dilate(harris, None)
+            img_harris = img.copy()
+            img_harris[harris > 0.01 * harris.max()] = [0, 0, 255]
+            corners_count = np.sum(harris > 0.01 * harris.max())
+            print(f"Для ID={object_id} найдено углов: {corners_count}")
+            cv2.imwrite(f"paintings/{object_id}_harris.jpg", img_harris)
+
+        proc.process_all('halftone_')
+        proc.save_result(prefix='halftone_')
 
         proc.process_all('gauss', size=5, sigma=1.0)
         proc.save_result(prefix='gauss')
 
-
         proc.process_all('sobel')
         proc.save_result(prefix='sobel')
 
-
-        print(" Сохраненные файлы:")
+        print("\n Сохраненные файлы:")
         for file in os.listdir('paintings'):
             if file.endswith('.jpg'):
                 print(f"  - {file}")
-
     else:
-        print(" Не удалось загрузить картины")
-    art1 = Artwork()
-    art1.img = cv2.imread("paintings/73370.jpg")
+        print("Не удалось загрузить картины")
 
-    art2 = Artwork()
-    art2.img = cv2.imread("paintings/45704.jpg")
-    # Смешиваем (усредняем)
-    mixed = art1 + art2
-    # Сохраняем
-    cv2.imwrite("paintings/mixed3.jpg", mixed.img)
 
 if __name__ == "__main__":
     main()
