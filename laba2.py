@@ -1,4 +1,3 @@
-
 import cv2
 import csv
 import os
@@ -87,6 +86,8 @@ class Artwork(ABC):
             return new_object
 
         if isinstance(other, Artwork):
+            if type(self) != type(other):
+                raise TypeError(f"Нельзя складывать {type(self).__name__} с {type(other).__name__}")
             h = max(self.img.shape[0], other.img.shape[0])
             w = max(self.img.shape[1], other.img.shape[1])
 
@@ -105,11 +106,6 @@ class Artwork(ABC):
             img1 = self.img.astype(np.float32)
             img2 = other.img.astype(np.float32)
 
-            if img1.ndim == 2:
-                img1 = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR)
-            if img2.ndim == 2:
-                img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
-
             board[:self.img.shape[0], :self.img.shape[1]] += img1
             board[:other.img.shape[0], :other.img.shape[1]] += img2
             result = np.clip(board, 0, 255).astype(np.uint8)
@@ -123,6 +119,45 @@ class Artwork(ABC):
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__} (ID: {self.object_id}, размер: {self.img.shape})"
+
+    @staticmethod
+    def sv_(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+        kh, kw = kernel.shape
+        h, w = img.shape
+        pad_h, pad_w = kh // 2, kw // 2
+
+        padded = np.pad(img, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant')
+        result = np.zeros((h, w), dtype=np.float32)
+
+        for y in range(h):
+            for x in range(w):
+                region = padded[y:y + kh, x:x + kw]
+                result[y, x] = np.sum(region * kernel)
+
+        return result
+
+    @staticmethod
+    def sobel_o(img: np.ndarray) -> np.ndarray:
+        kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
+        kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=np.float32)
+
+        grad_x = Artwork.sv_(img, kernel_x)
+        grad_y = Artwork.sv_(img, kernel_y)
+        result = np.sqrt(grad_x.astype(np.float32) ** 2 + grad_y.astype(np.float32) ** 2)
+
+        if result.max() > 0:
+            result = (result / result.max() * 255).astype(np.uint8)
+
+        return result
+
+    def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
+        center = size // 2
+        x, y = np.meshgrid(np.arange(size) - center, np.arange(size) - center)
+        kernel = np.exp(-(x ** 2 + y ** 2) / (2 * sigma ** 2))
+        kernel = kernel / kernel.sum()
+        result = self.svertka_(kernel)  # ← полиморфизм
+        return np.clip(result, 0, 255).astype(np.uint8)
+
 
 
 
@@ -146,38 +181,16 @@ class GrayscaleArtwork(Artwork):
 
     def svertka_(self, kernel: Optional[np.ndarray] = None) -> np.ndarray:
         if len(self.img.shape) == 2:
-            h, w = self.img.shape
-            kh, kw = kernel.shape
-            h_pad, w_pad = kh // 2, kw // 2
-            padded = np.pad(self.img, ((h_pad, h_pad), (w_pad, w_pad)), mode='constant')
-            result = np.zeros((h, w), dtype=np.float32)
-            for y in range(h):
-                for x in range(w):
-                    region = padded[y:y + kh, x:x + kw]
-                    result[y, x] = np.sum(region * kernel)
+            result = Artwork.sv_(self.img, kernel)
             return result
+        else:
+            raise ValueError("GrayscaleArtwork должен быть")
 
-    def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
-        center = size // 2
-        x, y = np.meshgrid(np.arange(size) - center, np.arange(size) - center)
-        kernel = np.exp(-(x ** 2 + y ** 2) / (2 * sigma ** 2))
-        kernel = kernel / kernel.sum()
-        result = self.svertka_(kernel)
-        return np.clip(result, 0, 255).astype(np.uint8)
 
     def sobel_(self) -> np.ndarray:
-        kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
-        kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
-
-        grad_x = self.svertka_(kernel_x)
-        grad_y = self.svertka_(kernel_y)
-
-        result = np.sqrt(grad_x ** 2 + grad_y ** 2)
-
-        if result.max() > 0:
-            result = (result / result.max() * 255).astype(np.uint8)
-        return result
-
+        if self.img is None:
+            raise ValueError("Изображение не загружено")
+        return Artwork.sobel_o(self.img)
 
 class ColorArtwork(Artwork):
     __slots__ = ('_image_type',)
@@ -198,45 +211,32 @@ class ColorArtwork(Artwork):
             return self.img.copy()
 
     def svertka_(self, kernel: Optional[np.ndarray] = None) -> np.ndarray:
-        if len(self.img.shape) == 2:
-            h, w = self.img.shape
-            kh, kw = kernel.shape
-            h_pad, w_pad = kh // 2, kw // 2
-            padded = np.pad(self.img, ((h_pad, h_pad), (w_pad, w_pad)), mode='constant')
-            result = np.zeros((h, w), dtype=np.float32)
-            for y in range(h):
-                for x in range(w):
-                    region = padded[y:y + kh, x:x + kw]
-                    result[y, x] = np.sum(region * kernel)
-            return result
-        elif len(self.img.shape) == 3:
+        if len(self.img.shape) == 3:
             h, w, c = self.img.shape
             result = np.zeros((h, w, c), dtype=np.float32)
             for channel in range(c):
                 single_channel = self.img[:, :, channel]
-                temp = GrayscaleArtwork()
-                temp.img = single_channel
-                result[:, :, channel] = temp.svertka_(kernel)
+                result[:, :, channel] = Artwork.sv_(single_channel, kernel)
             return result
-    def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
-        """Фильтр Гаусса для цветного изображения"""
-        center = size // 2
-        x, y = np.meshgrid(np.arange(size) - center, np.arange(size) - center)
-        kernel = np.exp(-(x ** 2 + y ** 2) / (2 * sigma ** 2))
-        kernel = kernel / kernel.sum()
-        result = self.svertka_(kernel)
-        return np.clip(result, 0, 255).astype(np.uint8)
+        else:
+            result = Artwork.sv_(self.img, kernel)
+            return result
 
     def sobel_(self) -> np.ndarray:
-        """Оператор Собеля для цветного (применяется к серой версии)"""
+        """Цветной Собель"""
         if self.img is None:
             raise ValueError("Изображение не загружено")
 
-        # Для цветного сначала преобразуем в серое
-        gray_img = self.halftone_()
-        temp = GrayscaleArtwork(gray_img)
-        return temp.sobel_()
+        # Сохраняем ссылку на изображение, чтобы избежать проблем
+        img_copy = self.img
 
+        h, w, c = img_copy.shape
+        result = np.zeros((h, w, c), dtype=np.uint8)
+
+        for channel in range(c):
+            result[:, :, channel] = Artwork.sobel_o(img_copy[:, :, channel])
+
+        return result
 
 
 @dataclass
@@ -244,6 +244,10 @@ class ImageProcessor:
     artworks: List[Artwork] = field(default_factory=list)
     processed: List[Artwork] = field(default_factory=list)
     output_dir: str = "paintings"
+    def __init__(self, artworks,prosssed,output_dir):
+        self.artworks=artworks
+
+
 
     def __post_init__(self) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
@@ -382,6 +386,36 @@ class ImageProcessor:
                 f"  обработано: {len(self.processed)},\n"
                 f"  папка: {self.output_dir}\n"
                 f")")
+
+
+def save_comparison(artwork: Artwork, output_dir: str = "paintings"):
+    obj_id = artwork.object_id or "unknown"
+
+    # Гаусс
+    cv_gauss = cv2.GaussianBlur(artwork.img, (5, 5), 1.0)
+    cv2.imwrite(f"{output_dir}/gauss_cv_{obj_id}.jpg", cv_gauss)
+
+    # Собель (цветной для OpenCV)
+    if len(artwork.img.shape) == 3:
+        # Цветное изображение — применяем Собель к каждому каналу
+        h, w, c = artwork.img.shape
+        cv_sobel = np.zeros((h, w, c), dtype=np.uint8)
+
+        for channel in range(c):
+            grad_x = cv2.Sobel(artwork.img[:, :, channel], cv2.CV_64F, 1, 0, ksize=3)
+            grad_y = cv2.Sobel(artwork.img[:, :, channel], cv2.CV_64F, 0, 1, ksize=3)
+            channel_result = np.sqrt(grad_x ** 2 + grad_y ** 2)
+            cv_sobel[:, :, channel] = np.clip(channel_result, 0, 255).astype(np.uint8)
+    else:
+        # Ч/б изображение
+        grad_x = cv2.Sobel(artwork.img, cv2.CV_64F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(artwork.img, cv2.CV_64F, 0, 1, ksize=3)
+        cv_sobel = np.sqrt(grad_x ** 2 + grad_y ** 2)
+        cv_sobel = np.clip(cv_sobel, 0, 255).astype(np.uint8)
+
+    cv2.imwrite(f"{output_dir}/sobel_cv_{obj_id}.jpg", cv_sobel)
+
+    print(f"Сравнение сохранено для {obj_id}")
 def main():
     proc = ImageProcessor()
     proc.load_metadata(count=1)
@@ -389,44 +423,7 @@ def main():
     if proc.artworks:
         proc.load_images()
 
-        # Сохраняем результаты от OpenCV для сравнения
-        for idx, artwork in enumerate(proc.artworks):
-            img = artwork.img
-            object_id = artwork.object_id
-
-            # Сохраняем результаты OpenCV
-            cv2_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            cv2.imwrite(f"paintings/{object_id}_halftone_cv2.jpg", cv2_gray)
-
-            size, sigma = 5, 1.0
-            center = size // 2
-            x, y = np.meshgrid(np.arange(size) - center, np.arange(size) - center)
-            gauss_kernel = np.exp(-(x ** 2 + y ** 2) / (2 * sigma ** 2))
-            gauss_kernel = gauss_kernel / gauss_kernel.sum()
-            cv2_gauss = cv2.filter2D(img, -1, gauss_kernel)
-            cv2.imwrite(f"paintings/{object_id}_gauss_cv2.jpg", cv2_gauss)
-
-            kernel_x = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]])
-            kernel_y = np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
-            gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            sobelx = cv2.filter2D(gray_img, cv2.CV_32F, kernel_x)
-            sobely = cv2.filter2D(gray_img, cv2.CV_32F, kernel_y)
-            cv2_sobel = np.sqrt(sobelx ** 2 + sobely ** 2)
-            cv2_sobel = (cv2_sobel / cv2_sobel.max() * 255).astype(np.uint8)
-            cv2.imwrite(f"paintings/{object_id}_sobel_cv2.jpg", cv2_sobel)
-
-            canny_result = cv2.Canny(cv2_gray, 50, 150)
-            cv2.imwrite(f"paintings/{object_id}_canny.jpg", canny_result)
-
-            gray_float = np.float32(cv2_gray)
-            harris = cv2.cornerHarris(gray_float, 2, 3, 0.04)
-            harris = cv2.dilate(harris, None)
-            img_harris = img.copy()
-            img_harris[harris > 0.01 * harris.max()] = [0, 0, 255]
-            corners_count = np.sum(harris > 0.01 * harris.max())
-            print(f"Для ID={object_id} найдено углов: {corners_count}")
-            cv2.imwrite(f"paintings/{object_id}_harris.jpg", img_harris)
-
+        # Ваши обработки
         proc.process_all('halftone_')
         proc.save_result(prefix='halftone_')
 
@@ -435,6 +432,11 @@ def main():
 
         proc.process_all('sobel')
         proc.save_result(prefix='sobel')
+
+        # === ВЫЗОВ СРАВНЕНИЯ ===
+        print("\n=== Сравнение с OpenCV ===")
+        for artwork in proc.artworks:
+            save_comparison(artwork)  # <-- ВЫЗОВ ФУНКЦИИ
 
         print("\n Сохраненные файлы:")
         for file in os.listdir('paintings'):
