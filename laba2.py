@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 import functools
 from abc import ABC, abstractmethod
 
-
 def time_method(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -78,6 +77,12 @@ class Artwork(ABC):
     @object_id.setter
     def object_id(self, value: str) -> None:
         self.__object_id = value
+    @property
+    def image_url(self) -> Optional[str]:
+        return self.__image_url
+    @image_url.setter
+    def image_url(self, url: str) -> None:
+        self.__image_url=url
     def __add__(self, other: Union['Artwork', int, float]) -> 'Artwork':
         if isinstance(other, (int, float)):
             result = np.clip(self.img.astype(np.int16) + other, 0, 255).astype(np.uint8)
@@ -149,17 +154,13 @@ class Artwork(ABC):
             result = (result / result.max() * 255).astype(np.uint8)
 
         return result
-
-    def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
+    @staticmethod
+    def gauss_o( size: int = 5, sigma: float = 1.0) -> np.ndarray:
         center = size // 2
         x, y = np.meshgrid(np.arange(size) - center, np.arange(size) - center)
         kernel = np.exp(-(x ** 2 + y ** 2) / (2 * sigma ** 2))
         kernel = kernel / kernel.sum()
-        result = self.svertka_(kernel)  # ← полиморфизм
-        return np.clip(result, 0, 255).astype(np.uint8)
-
-
-
+        return kernel
 
 class GrayscaleArtwork(Artwork):
     __slots__ = ('_image_type',)
@@ -186,6 +187,10 @@ class GrayscaleArtwork(Artwork):
         else:
             raise ValueError("GrayscaleArtwork должен быть")
 
+    def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
+        kernel = Artwork.gauss_o(size, sigma)
+        result = self.svertka_(kernel)
+        return np.clip(result, 0, 255).astype(np.uint8)
 
     def sobel_(self) -> np.ndarray:
         if self.img is None:
@@ -222,37 +227,22 @@ class ColorArtwork(Artwork):
             result = Artwork.sv_(self.img, kernel)
             return result
 
+    def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
+        kernel = Artwork.gauss_o(size, sigma)
+        result = self.svertka_(kernel)
+        return np.clip(result, 0, 255).astype(np.uint8)
+
     def sobel_(self) -> np.ndarray:
-        """Цветной Собель"""
-        if self.img is None:
-            raise ValueError("Изображение не загружено")
-
-        # Сохраняем ссылку на изображение, чтобы избежать проблем
-        img_copy = self.img
-
-        h, w, c = img_copy.shape
+        h, w, c = self.img.shape
         result = np.zeros((h, w, c), dtype=np.uint8)
-
         for channel in range(c):
-            result[:, :, channel] = Artwork.sobel_o(img_copy[:, :, channel])
-
+            result[:, :, channel] = Artwork.sobel_o(self.img[:, :, channel])
         return result
-
-
 @dataclass
 class ImageProcessor:
     artworks: List[Artwork] = field(default_factory=list)
     processed: List[Artwork] = field(default_factory=list)
     output_dir: str = "paintings"
-    def __init__(self, artworks,prosssed,output_dir):
-        self.artworks=artworks
-
-
-
-    def __post_init__(self) -> None:
-        os.makedirs(self.output_dir, exist_ok=True)
-        print(f"ImageProcessor создан. Папка: {self.output_dir}")
-
     def _get_painting_ids(self, csv_path: str = 'MetObjects.csv') -> List[str]:
         painting_ids = []
         try:
@@ -277,16 +267,13 @@ class ImageProcessor:
         if not painting_ids:
             print("Нет ID")
             return
-
         loaded = 0
         attempts = 0
         max_attempts = count * 10
-
         while loaded < count and attempts < max_attempts:
             attempts += 1
             random_id = random.choice(painting_ids)
             print(f"  Попытка {attempts}: пробуем ID={random_id}")
-
             try:
                 url = f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{random_id}"
                 response = requests.get(url, timeout=10)
@@ -296,11 +283,10 @@ class ImageProcessor:
                     print("    У этого объекта нет фото")
                     continue
 
-                # Создаём цветной объект (по умолчанию)
                 artwork = ColorArtwork()
                 artwork.object_id = random_id
                 artwork.metadata = data
-                artwork._Artwork__image_url = data.get('primaryImage')
+                artwork.image_url = data.get('primaryImage')
 
                 self.artworks.append(artwork)
                 loaded += 1
@@ -373,8 +359,6 @@ class ImageProcessor:
     def save_result(self, prefix: str = 'processed') -> None:
         print(f"Сохранение результатов ({prefix})")
         for i, artwork in enumerate(self.processed):
-            if artwork.img is None:
-                continue
             filename = f"{prefix}_{artwork.object_id or i}.jpg"
             filepath = os.path.join(self.output_dir, filename)
             cv2.imwrite(filepath, artwork.img)
@@ -389,15 +373,13 @@ class ImageProcessor:
 
 
 def save_comparison(artwork: Artwork, output_dir: str = "paintings"):
-    obj_id = artwork.object_id or "unknown"
-
+    obj_id = artwork.object_id
     # Гаусс
     cv_gauss = cv2.GaussianBlur(artwork.img, (5, 5), 1.0)
     cv2.imwrite(f"{output_dir}/gauss_cv_{obj_id}.jpg", cv_gauss)
 
-    # Собель (цветной для OpenCV)
+    # Собель
     if len(artwork.img.shape) == 3:
-        # Цветное изображение — применяем Собель к каждому каналу
         h, w, c = artwork.img.shape
         cv_sobel = np.zeros((h, w, c), dtype=np.uint8)
 
@@ -407,12 +389,10 @@ def save_comparison(artwork: Artwork, output_dir: str = "paintings"):
             channel_result = np.sqrt(grad_x ** 2 + grad_y ** 2)
             cv_sobel[:, :, channel] = np.clip(channel_result, 0, 255).astype(np.uint8)
     else:
-        # Ч/б изображение
         grad_x = cv2.Sobel(artwork.img, cv2.CV_64F, 1, 0, ksize=3)
         grad_y = cv2.Sobel(artwork.img, cv2.CV_64F, 0, 1, ksize=3)
         cv_sobel = np.sqrt(grad_x ** 2 + grad_y ** 2)
         cv_sobel = np.clip(cv_sobel, 0, 255).astype(np.uint8)
-
     cv2.imwrite(f"{output_dir}/sobel_cv_{obj_id}.jpg", cv_sobel)
 
     print(f"Сравнение сохранено для {obj_id}")
@@ -423,7 +403,6 @@ def main():
     if proc.artworks:
         proc.load_images()
 
-        # Ваши обработки
         proc.process_all('halftone_')
         proc.save_result(prefix='halftone_')
 
@@ -433,10 +412,9 @@ def main():
         proc.process_all('sobel')
         proc.save_result(prefix='sobel')
 
-        # === ВЫЗОВ СРАВНЕНИЯ ===
-        print("\n=== Сравнение с OpenCV ===")
+
         for artwork in proc.artworks:
-            save_comparison(artwork)  # <-- ВЫЗОВ ФУНКЦИИ
+            save_comparison(artwork)
 
         print("\n Сохраненные файлы:")
         for file in os.listdir('paintings'):
