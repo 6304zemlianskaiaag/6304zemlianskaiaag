@@ -3,14 +3,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
 import os
+from logging_config import create_logging, get_logger
+
+create_logging()
+logger = get_logger(__name__)
 
 file_ = "MetObjects.csv"
 CHUNK_SIZE = 10000
 OUTPUT_DIR = "results"
 
+
 def read_chunks(file_path):
     for chunk in pd.read_csv(file_path, chunksize=CHUNK_SIZE):
         yield chunk
+
 
 def filter_data(chunks):
     for df in chunks:
@@ -18,6 +24,7 @@ def filter_data(chunks):
         df = df.dropna()
         df["Century"] = (df["Object Begin Date"] // 100) + 1
         yield df
+
 
 def aggregate(chunks):
     total_df = pd.DataFrame()
@@ -27,9 +34,7 @@ def aggregate(chunks):
 
     top_countries = total_df["Country"].value_counts().head(10).index
     df_top = total_df[total_df["Country"].isin(top_countries)]
-
     grouped = df_top.groupby("Country")["Century"]
-
     result = pd.DataFrame()
     result["mean"] = grouped.mean()
     result["std"] = grouped.std()
@@ -39,6 +44,7 @@ def aggregate(chunks):
         n = row["count"]
         ci = stats.t.interval(0.95, df=n - 1, loc=row["mean"], scale=row["std"] / np.sqrt(n))
         return pd.Series({'ci_lower': ci[0], 'ci_upper': ci[1]})
+
     result[['ci_lower', 'ci_upper']] = result.apply(calc_ci, axis=1)
 
     def calc_scatter(group):
@@ -46,37 +52,52 @@ def aggregate(chunks):
             'scatter_lower': group.quantile(0.025),
             'scatter_upper': group.quantile(0.975)
         })
+
     scatter = df_top.groupby('Country')['Century'].apply(calc_scatter).unstack()
     result['scatter_lower'] = scatter['scatter_lower']
     result['scatter_upper'] = scatter['scatter_upper']
 
-    result = result.reset_index()  # сбрасывает индекс
-    print("Результаты (топ-10 стран)")
-    result["ci95"]=result['ci_upper']-result["ci_lower"]
-    print(result[["Country", "mean", "ci_lower","ci_upper","ci95", "scatter_lower", "scatter_upper",  "count"]].round(2).to_string(index=False))
+    result = result.reset_index()
+    logger.info("Результаты (топ-10 стран)")
+    result["ci95"] = result['ci_upper'] - result["ci_lower"]
+    logger.info("\n" + result[
+        ["Country", "mean", "ci_lower", "ci_upper", "ci95", "scatter_lower", "scatter_upper", "count"]].round(
+        2).to_string(index=False))
     return result, df_top
+
+
 def plot_bar(result):
     result = result.sort_values("mean", ascending=False).reset_index(drop=True)
     plt.figure(figsize=(12, 6))
     x = range(len(result))
-    plt.bar(x, result["mean"], color="pink",  edgecolor="blue")
+    plt.bar(x, result["mean"], color="pink", edgecolor="blue")
+
     for i, row in result.iterrows():
-        plt.plot([i, i], [row["ci_lower"], row["ci_upper"]], 'b-', linewidth=3)
-        plt.plot(i, row["ci_lower"], 'bv', markersize=6)
-        plt.plot(i, row["ci_upper"], 'b^', markersize=6)
+        plt.plot([i, i], [row["ci_lower"], row["ci_upper"]], 'b-', linewidth=1)
+        plt.plot([i - 0.1, i + 0.1], [row["ci_lower"], row["ci_lower"]], 'b-', linewidth=2)
+        plt.plot([i - 0.1, i + 0.1], [row["ci_upper"], row["ci_upper"]], 'b-', linewidth=2)
+
+    for i, row in result.iterrows():
+        plt.plot([i, i], [row["scatter_lower"], row["scatter_upper"]], 'r-', linewidth=1)
+        plt.plot([i - 0.1, i + 0.1], [row["scatter_lower"], row["scatter_lower"]], 'r-', linewidth=2)
+        plt.plot([i - 0.1, i + 0.1], [row["scatter_upper"], row["scatter_upper"]], 'r-', linewidth=2)
+
     plt.title("Средний век по странам (топ-10)\nс 95% доверительным интервалом", fontsize=14)
     plt.ylabel("Век")
     plt.xlabel("Страна")
     plt.xticks(x, result["Country"], rotation=45, ha="right")
     plt.grid(alpha=0.3)
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     bar_path = os.path.join(OUTPUT_DIR, "bar_chart.png")
     plt.savefig(bar_path)
-    print(f"Столбчатая диаграмма сохранена: {bar_path}")
+    logger.info(f"Столбчатая диаграмма сохранена: {bar_path}")
     plt.show()
+
 
 def plot_time(df):
     country_ = df.groupby("Country")["Century"].mean().idxmax()
-    print(f"\nСамая современная страна: {country_}")
+    logger.info(f"Самая современная страна: {country_}")
 
     df_country = df[df["Country"] == country_]
     counts = df_country.groupby("Object Begin Date").size().sort_index()
@@ -92,18 +113,21 @@ def plot_time(df):
     plt.ylabel("Количество объектов")
     plt.legend()
     plt.grid(alpha=0.3)
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     ts_path = os.path.join(OUTPUT_DIR, "time_series.png")
     plt.savefig(ts_path, dpi=300, bbox_inches="tight")
-    print(f"Временной график сохранён: {ts_path}")
+    logger.info(f"Временной график сохранён: {ts_path}")
     plt.show()
 
 
-
 def main_pipeline():
+    logger.info("Запуск анализа датасета")
     result, df_top = aggregate(filter_data(read_chunks(file_)))
     plot_bar(result)
     plot_time(df_top)
-    print(f"\nВсе графики сохранены в папку: {OUTPUT_DIR}")
+    logger.info(f"Все графики сохранены в папку: {OUTPUT_DIR}")
+
 
 if __name__ == "__main__":
     main_pipeline()

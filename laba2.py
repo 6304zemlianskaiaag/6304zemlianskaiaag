@@ -9,14 +9,17 @@ from typing import Optional, Dict, Any, Union, List
 from dataclasses import dataclass, field
 import functools
 from abc import ABC, abstractmethod
+from logging_config import create_logging, get_logger
 
+create_logging()
+logger = get_logger(__name__)
 def time_method(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         start = time.perf_counter()
         result = func(*args, **kwargs)
         end = time.perf_counter()
-        print(f" Время выполнения {func.__name__}: {end - start:.2f} сек.")
+        logger.info(f" Время выполнения {func.__name__}: {end - start:.2f} сек.")
         return result
 
     return wrapper
@@ -251,13 +254,13 @@ class ImageProcessor:
                 for row in reader:
                     if row.get('Classification') == 'Paintings':
                         painting_ids.append(row['Object ID'])
-            print(f"Найдено {len(painting_ids)} картин")
+            logger.info(f"Найдено {len(painting_ids)} картин")
             if not painting_ids:
-                print("нет картин")
+                logger.info("нет картин")
                 exit()
             return painting_ids
         except Exception as e:
-            print(f"{e}")
+            logger.info(f"{e}")
             exit()
 
     @time_method
@@ -265,7 +268,7 @@ class ImageProcessor:
         print(f"\nЗагрузка метаданных ({count})")
         painting_ids = self._get_painting_ids(csv_path)
         if not painting_ids:
-            print("Нет ID")
+            logger.debug("Нет ID")
             return
         loaded = 0
         attempts = 0
@@ -273,14 +276,14 @@ class ImageProcessor:
         while loaded < count and attempts < max_attempts:
             attempts += 1
             random_id = random.choice(painting_ids)
-            print(f"  Попытка {attempts}: пробуем ID={random_id}")
+            logger.debug(f"  Попытка {attempts}: пробуем ID={random_id}")
             try:
                 url = f"https://collectionapi.metmuseum.org/public/collection/v1/objects/{random_id}"
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
                 data = response.json()
                 if not data.get('primaryImage'):
-                    print("    У этого объекта нет фото")
+                    logger.debug("    У этого объекта нет фото")
                     continue
 
                 artwork = ColorArtwork()
@@ -290,18 +293,18 @@ class ImageProcessor:
 
                 self.artworks.append(artwork)
                 loaded += 1
-                print(f"Загружена: {data.get('title', 'Unknown')}")
+                logger.info(f"Загружена: {data.get('title', 'Unknown')}")
 
             except Exception as e:
-                print(f" {e}")
+                logger.debug(f" {e}")
 
-        print(f"Загружено {loaded} картин")
+        logger.info(f"Загружено {loaded} картин")
 
     @time_method
     def load_images(self) -> None:
-        print("\nЗагрузка изображений")
+        logger.info("\nЗагрузка изображений")
         for i, artwork in enumerate(self.artworks):
-            print(f"  Загрузка изображения {i + 1}")
+            logger.debug(f"  Загрузка изображения {i + 1}")
 
             img_url = artwork.metadata['primaryImage']
             response = requests.get(img_url, timeout=10)
@@ -313,29 +316,29 @@ class ImageProcessor:
                     f.write(chunk)
 
             artwork.img = cv2.imread(filename)
-            print(f"Загружено: {artwork.img.shape}")
+            logger.debug(f"Загружено: {artwork.img.shape}")
 
-        print("Изображения загружены!")
+        logger.info("Изображения загружены!")
 
     @time_method
     def process_all(self, filter_type: str, **params: Any) -> List[Artwork]:
         self.processed = []
-        print(f"\nПрименен метод: {filter_type}")
+        logger.info(f"\nПрименен метод: {filter_type}")
 
         for i, artwork in enumerate(self.artworks):
-            print(f"  Обработка изображения {i + 1}")
+            logger.debug(f"  Обработка изображения {i + 1}")
             try:
                 if filter_type == 'halftone_':
                     result = artwork.halftone_()
-                    print("  Применен halftone_")
+                    logger.debug("  Применен halftone_")
                 elif filter_type == 'gauss':
                     size = params.get('size', 5)
                     sigma = params.get('sigma', 1.0)
                     result = artwork.gauss_(size=size, sigma=sigma)
-                    print("  Применен gauss_")
+                    logger.debug("  Применен gauss_")
                 elif filter_type == 'sobel':
                     result = artwork.sobel_()
-                    print("  Применен sobel_")
+                    logger.debug("  Применен sobel_")
                 else:
                     raise ValueError(f'Неизвестный фильтр: {filter_type}')
 
@@ -350,19 +353,19 @@ class ImageProcessor:
                 self.processed.append(result_artwork)
 
             except Exception as e:
-                print(f"  {e}")
+                logger.debug(f"  {e}")
 
-        print(f"Обработано {len(self.processed)} изображений")
+        logger.info(f"Обработано {len(self.processed)} изображений")
         return self.processed
 
     @time_method
     def save_result(self, prefix: str = 'processed') -> None:
-        print(f"Сохранение результатов ({prefix})")
+        logger.info(f"Сохранение результатов ({prefix})")
         for i, artwork in enumerate(self.processed):
             filename = f"{prefix}_{artwork.object_id or i}.jpg"
             filepath = os.path.join(self.output_dir, filename)
             cv2.imwrite(filepath, artwork.img)
-            print(f"  Сохранено {i + 1}: {filename}")
+            logger.info(f"  Сохранено {i + 1}: {filename}")
 
     def __str__(self) -> str:
         return (f"ImageProcessor(\n"
@@ -394,11 +397,12 @@ def save_comparison(artwork: Artwork, output_dir: str = "paintings"):
         cv_sobel = np.sqrt(grad_x ** 2 + grad_y ** 2)
         cv_sobel = np.clip(cv_sobel, 0, 255).astype(np.uint8)
     cv2.imwrite(f"{output_dir}/sobel_cv_{obj_id}.jpg", cv_sobel)
+    logger.info(f"Сравнение сохранено для {obj_id}")
 
-    print(f"Сравнение сохранено для {obj_id}")
+
 def main():
     proc = ImageProcessor()
-    proc.load_metadata(count=1)
+    proc.load_metadata(count=2)
 
     if proc.artworks:
         proc.load_images()
@@ -412,16 +416,12 @@ def main():
         proc.process_all('sobel')
         proc.save_result(prefix='sobel')
 
-
-        for artwork in proc.artworks:
-            save_comparison(artwork)
-
-        print("\n Сохраненные файлы:")
+        logger.info("\n Сохраненные файлы:")
         for file in os.listdir('paintings'):
             if file.endswith('.jpg'):
-                print(f"  - {file}")
+                logger.info(f"  - {file}")
     else:
-        print("Не удалось загрузить картины")
+        logger.info("Не удалось загрузить картины")
 
 
 if __name__ == "__main__":
