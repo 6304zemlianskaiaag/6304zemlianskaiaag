@@ -16,6 +16,11 @@ import asyncio
 import argparse
 from concurrent.futures import ProcessPoolExecutor
 
+from logging_config import create_logging, get_logger
+
+create_logging()
+logger = get_logger(__name__)
+
 
 def time_method_async(func):
     @functools.wraps(func)
@@ -23,7 +28,7 @@ def time_method_async(func):
         start = time.perf_counter()
         result = await func(*args, **kwargs)
         end = time.perf_counter()
-        print(f"[АСИНХРОН] {func.__name__} (PID: {os.getpid()}): {end - start:.2f} сек.")
+        logger.debug(f"[АСИНХРОН] {func.__name__} (PID: {os.getpid()}): {end - start:.2f} сек.")
         return result
 
     return wrapper
@@ -35,7 +40,7 @@ def time_method(func):
         start = time.perf_counter()
         result = func(*args, **kwargs)
         end = time.perf_counter()
-        print(f"[ПАРАЛЛЕЛЬ] {func.__name__} (PID: {os.getpid()}): {end - start:.2f} сек.")
+        logger.debug(f"[ПАРАЛЛЕЛЬ] {func.__name__} (PID: {os.getpid()}): {end - start:.2f} сек.")
         return result
 
     return wrapper
@@ -241,7 +246,7 @@ class GrayscaleArtwork(Artwork):
         return np.clip(gray, 0, 255).astype(np.uint8)
 
     def halftone_(self) -> np.ndarray:
-        print(f"[LOG] ({self._get_task_info()}): halftone_ серый (PID: {os.getpid()})")
+        logger.debug(f"({self._get_task_info()}): halftone_ серый (PID: {os.getpid()})")
         return self.img.copy()
 
     def svertka_(self, kernel: Optional[np.ndarray] = None) -> np.ndarray:
@@ -252,13 +257,13 @@ class GrayscaleArtwork(Artwork):
             raise ValueError("GrayscaleArtwork должен быть")
 
     def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
-        print(f"[LOG] ({self._get_task_info()}): gauss_ серый (PID: {os.getpid()})")
+        logger.debug(f"({self._get_task_info()}): gauss_ серый (PID: {os.getpid()})")
         kernel = Artwork.gauss_o(size, sigma)
         result = self.svertka_(kernel)
         return np.clip(result, 0, 255).astype(np.uint8)
 
     def sobel_(self) -> np.ndarray:
-        print(f"[LOG] ({self._get_task_info()}): sobel_ серый (PID: {os.getpid()})")
+        logger.debug(f"({self._get_task_info()}): sobel_ серый (PID: {os.getpid()})")
         if self.img is None:
             raise ValueError("Изображение не загружено")
         return Artwork.sobel_o(self.img)
@@ -277,7 +282,7 @@ class ColorArtwork(Artwork):
         self._image_type = "color"
 
     def halftone_(self) -> np.ndarray:
-        print(f"[LOG] ({self._get_task_info()}): halftone_ цветной (PID: {os.getpid()})")
+        logger.debug(f"({self._get_task_info()}): halftone_ цветной (PID: {os.getpid()})")
         if len(self.img.shape) == 3:
             gray = (0.299 * self.img[:, :, 2] + 0.587 * self.img[:, :, 1] + 0.114 * self.img[:, :, 0])
             return np.clip(gray, 0, 255).astype(np.uint8)
@@ -297,13 +302,13 @@ class ColorArtwork(Artwork):
             return result
 
     def gauss_(self, size: int = 5, sigma: float = 1.0) -> np.ndarray:
-        print(f"[LOG] ({self._get_task_info()}): gauss_ цветной (PID: {os.getpid()})")
+        logger.debug(f"({self._get_task_info()}): gauss_ цветной (PID: {os.getpid()})")
         kernel = Artwork.gauss_o(size, sigma)
         result = self.svertka_(kernel)
         return np.clip(result, 0, 255).astype(np.uint8)
 
     def sobel_(self) -> np.ndarray:
-        print(f"[LOG] ({self._get_task_info()}): sobel_ цветной (PID: {os.getpid()})")
+        logger.debug(f"({self._get_task_info()}): sobel_ цветной (PID: {os.getpid()})")
         h, w, c = self.img.shape
         result = np.zeros((h, w, c), dtype=np.uint8)
         for channel in range(c):
@@ -316,7 +321,7 @@ class ImageProcessor:
     artworks: List[Artwork] = field(default_factory=list)
     processed: List[Artwork] = field(default_factory=list)
     output_dir: str = "paintings"
-    csv_path: str = "MetObjects.csv"  # CSV в той же папке
+    csv_path: str = "MetObjects.csv"
     api_url: str = "https://collectionapi.metmuseum.org/public/collection/v1/objects/{}"
 
     def _get_painting_ids(self) -> List[str]:
@@ -327,10 +332,10 @@ class ImageProcessor:
                 for row in reader:
                     if row.get('Classification') == 'Paintings':
                         painting_ids.append(row['Object ID'])
-            print(f"[INFO] Найдено {len(painting_ids)} картин в CSV")
+            logger.info(f"Найдено {len(painting_ids)} картин в CSV")
             return painting_ids
         except Exception as e:
-            print(f"[ERROR] Ошибка чтения CSV: {e}")
+            logger.error(f"Ошибка чтения CSV: {e}")
             return []
 
     async def get_object_json(self, session: aiohttp.ClientSession, object_id: str):
@@ -345,19 +350,19 @@ class ImageProcessor:
 
     @staticmethod
     async def download_file(session: aiohttp.ClientSession, url: str, out_path: str) -> None:
-        print(f"[СКАЧИВАНИЕ] Начало (PID: {os.getpid()})")
+        logger.debug(f"СКАЧИВАНИЕ Начало (PID: {os.getpid()})")
         async with session.get(url) as response:
             if response.status == 200:
                 content = await response.read()
                 async with aiofiles.open(out_path, mode='wb') as f:
                     await f.write(content)
-        print(f"[СКАЧИВАНИЕ] Завершено (PID: {os.getpid()})")
+        logger.debug(f"СКАЧИВАНИЕ Завершено (PID: {os.getpid()})")
 
     @time_method_async
     async def load_metadata_and_image_async(self, session: aiohttp.ClientSession, all_ids: List[str], index: int):
         os.makedirs(self.output_dir, exist_ok=True)
 
-        print(f"[ЗАГРУЗКА] (№{index}): Поиск картины")
+        logger.info(f"(№{index}): Поиск картины")
 
         chosen_id = None
         chosen_data = None
@@ -370,10 +375,10 @@ class ImageProcessor:
                 break
 
         if not chosen_id or not chosen_data:
-            print(f"[ERROR] (№{index}): Не найдена картина с изображением")
+            logger.error(f"(№{index}): Не найдена картина с изображением")
             return None
 
-        print(f"[ЗАГРУЗКА] (№{index}): Найдена ID={chosen_id}")
+        logger.info(f"(№{index}): Найдена ID={chosen_id}")
 
         obj_dir = os.path.join(self.output_dir, f"{index}_{chosen_id}")
         os.makedirs(obj_dir, exist_ok=True)
@@ -399,7 +404,7 @@ class ImageProcessor:
         artwork.index = index
 
         self.artworks.append(artwork)
-        print(f"[ГОТОВО] (№{index}): Загружено {img.shape}")
+        logger.info(f"(№{index}): Загружено {img.shape}")
         return artwork
 
     async def save_artwork(self, artwork: Artwork, suffix: str) -> None:
@@ -407,43 +412,28 @@ class ImageProcessor:
         filename = f"{artwork.index}_{artwork.object_id}_{suffix}.jpg"
         final_path = os.path.join(dirname, filename)
         await artwork.save_async(final_path)
-        print(f"[СОХРАНЕНИЕ] ({artwork._get_task_info()}): {filename}")
-
+        logger.info(f"({artwork._get_task_info()}): {filename}")
 
     @time_method_async
     async def process_artwork_parallel(self, artwork: Artwork, executor: ProcessPoolExecutor) -> None:
-        """
-        ДЛЯ ОДНОГО ИЗОБРАЖЕНИЯ:
-        Запускаем несколько фильтров ПАРАЛЛЕЛЬНО в разных процессах
-        """
         if artwork.img is None:
             raise ValueError("Изображение не загружено")
 
         loop = asyncio.get_event_loop()
-        print(f"\n[ПАРАЛЛЕЛЬ] ({artwork._get_task_info()}): Запуск {3} фильтров параллельно")
-
+        logger.info(f"({artwork._get_task_info()}): Запуск 3 фильтров параллельно")
 
         tasks = [
-
             loop.run_in_executor(executor, artwork.halftone_),
-
-
             loop.run_in_executor(executor, artwork.gauss_),
-
-
             loop.run_in_executor(executor, artwork.sobel_),
         ]
 
-        print(f"[ЗАПУСК] ({artwork._get_task_info()}): 3 фильтра стартуют одновременно")
-
+        logger.info(f"({artwork._get_task_info()}): 3 фильтра стартуют одновременно")
 
         results = await asyncio.gather(*tasks)
-
-
         gray_img, gauss_img, sobel_img = results
 
-        print(f"[ВЫПОЛНЕНО] ({artwork._get_task_info()}): Все 3 фильтра завершены")
-
+        logger.info(f"({artwork._get_task_info()}): Все 3 фильтра завершены")
 
         gray_art = GrayscaleArtwork(gray_img)
         gray_art.object_id = artwork.object_id
@@ -466,38 +456,35 @@ class ImageProcessor:
         await self.save_artwork(sobel_art, "sobel")
         self.processed.append(sobel_art)
 
-        print(f"[ГОТОВО] ({artwork._get_task_info()}): Обработка завершена\n")
+        logger.info(f"({artwork._get_task_info()}): Обработка завершена")
 
     @time_method_async
     async def run_pipeline(self, num_images: int) -> None:
-
         all_ids = self._get_painting_ids()
         if not all_ids:
-            print(f"[ERROR] Файл не найден или нет картин: {self.csv_path}")
+            logger.error(f"Файл не найден или нет картин: {self.csv_path}")
             return
 
         random.shuffle(all_ids)
-        print(f"\n[INFO] Запуск обработки {num_images} изображений")
-        print(f"[INFO] Каждое изображение будет обработано 3 фильтрами параллельно")
-        print(f"[INFO] Итого процессов: {num_images} картин × 3 фильтра = {num_images * 3} параллельных процессов\n")
+        logger.info(f"Запуск обработки {num_images} изображений")
+        logger.info(f"Каждое изображение будет обработано 3 фильтрами параллельно")
+        logger.info(f"Итого процессов: {num_images} картин × 3 фильтра = {num_images * 3} параллельных процессов")
 
         async with aiohttp.ClientSession() as session:
             with ProcessPoolExecutor(max_workers=num_images * 3) as executor:
-
                 async def workflow(idx: int):
-                    """Обработка ОДНОЙ картины (внутри неё фильтры параллельны)"""
                     start_index = (idx - 1) * 50
                     sub_list = all_ids[start_index:start_index + 100]
                     artwork = await self.load_metadata_and_image_async(session, sub_list, idx)
                     if artwork:
                         await self.process_artwork_parallel(artwork, executor)
 
-                print(f"[ЗАПУСК] Стартуем загрузку {num_images} картин одновременно\n")
+                logger.info("Стартуем загрузку картин одновременно")
                 tasks = [workflow(i + 1) for i in range(num_images)]
                 await asyncio.gather(*tasks)
 
-        print(f"\n[ИТОГ] Загружено: {len(self.artworks)}, обработано: {len(self.processed)}")
-        print(f"[ИТОГ] Всего выполнено операций: {len(self.processed)} (фильтров)")
+        logger.info(f"Загружено: {len(self.artworks)}, обработано: {len(self.processed)}")
+        logger.info(f"Всего выполнено операций: {len(self.processed)} (фильтров)")
 
 
 def save_comparison(artwork: Artwork, output_dir: str = "paintings"):
@@ -519,7 +506,53 @@ def save_comparison(artwork: Artwork, output_dir: str = "paintings"):
         cv_sobel = np.sqrt(grad_x ** 2 + grad_y ** 2)
         cv_sobel = np.clip(cv_sobel, 0, 255).astype(np.uint8)
     cv2.imwrite(f"{output_dir}/sobel_cv_{obj_id}.jpg", cv_sobel)
-    print(f"Сравнение сохранено для {obj_id}")
+    logger.info(f"Сравнение сохранено для {obj_id}")
+
+
+def process_(input_json: str, output_dir: str, num: int = 5):
+    with open(input_json, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    if isinstance(data, dict):
+        data = [data]
+    selected = data[:num]
+
+    logger.info(f"Обработка {len(selected)} изображений из JSON")
+
+    async def run():
+        processor = ImageProcessor(output_dir=output_dir)
+
+        async with aiohttp.ClientSession() as session:
+            with ProcessPoolExecutor(max_workers=num * 3) as executor:
+                for idx, item in enumerate(selected, 1):
+                    object_id = item.get('object_id')
+                    image_url = item.get('primary_image')
+                    title = item.get('title', 'Unknown')
+
+                    logger.info(f"[{idx}] {title} (ID: {object_id})")
+
+                    obj_dir = os.path.join(output_dir, f"{idx}_{object_id}")
+                    os.makedirs(obj_dir, exist_ok=True)
+                    img_path = os.path.join(obj_dir, f"{idx}_{object_id}_original.jpg")
+
+                    await processor.download_file(session, image_url, img_path)
+
+                    async with aiofiles.open(img_path, 'rb') as f:
+                        raw = await f.read()
+                    buffer = np.frombuffer(raw, np.uint8)
+                    img = cv2.imdecode(buffer, cv2.IMREAD_COLOR)
+
+                    artwork = ColorArtwork(img)
+                    artwork.object_id = object_id
+                    artwork.path = img_path
+                    artwork.index = idx
+
+                    await processor.process_artwork_parallel(artwork, executor)
+                    processor.artworks.append(artwork)
+
+        return len(processor.artworks)
+
+    return asyncio.run(run())
 
 
 async def main_async():
@@ -528,22 +561,14 @@ async def main_async():
     args = parser.parse_args()
 
     processor = ImageProcessor()
-    print(f"\n{'=' * 60}")
-    print(f"ЗАПУСК ЛАБОРАТОРНОЙ РАБОТЫ №4")
-    print(f"{'=' * 60}")
-    print(f"Количество изображений: {args.n}")
-    print(f"Фильтров на изображение: 3 (halftone, gauss, sobel)")
-    print(f"Всего параллельных процессов: {args.n} × 3 = {args.n * 3}")
-    print(f"{'=' * 60}\n")
+    logger.info(f"Количество изображений: {args.n}")
+    logger.info(f"Всего параллельных процессов: {args.n} × 3 = {args.n * 3}")
 
     start = time.perf_counter()
     await processor.run_pipeline(args.n)
     end = time.perf_counter()
 
-    print(f"\n{'=' * 60}")
-    print(f"ОБЩЕЕ ВРЕМЯ ВЫПОЛНЕНИЯ: {end - start:.2f} сек.")
-    print(f"{'=' * 60}")
-
+    logger.info(f"ОБЩЕЕ ВРЕМЯ ВЫПОЛНЕНИЯ: {end - start:.2f} сек.")
 
 if __name__ == "__main__":
     asyncio.run(main_async())
