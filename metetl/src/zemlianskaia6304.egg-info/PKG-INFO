@@ -1,0 +1,29 @@
+Metadata-Version: 2.4
+Name: zemlianskaia6304
+Version: 0.1.0
+Summary: ETL инструмент для скачивания и обработки изображений из коллекции MET
+Author-email: zemlianskaia <zemlianskaia.anastasia@mail.ru>
+License: MIT
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Description-Content-Type: text/markdown
+Requires-Dist: requests>=2.25.0
+Requires-Dist: opencv-python>=4.5.0
+Requires-Dist: numpy>=1.21.0
+Requires-Dist: aiohttp>=3.8.0
+Requires-Dist: aiofiles>=22.0.0
+Requires-Dist: matplotlib>=3.5.0
+Requires-Dist: pandas>=1.3.0
+Requires-Dist: scipy>=1.7.0
+
+# Лабораторные работы
+
+Студент: Землянская А.Г.
+Группа: 6304
+
+## Структура проекта
+- `part1_download.py` - скрипт для скачивания изображений
+- `.gitignore` - список игнорируемых файлов
+- `.flake8` - конфигурация линтера

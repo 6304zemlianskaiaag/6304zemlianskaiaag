@@ -1,0 +1,7 @@
+2026-05-16 14:48:55 - matplotlib - DEBUG - __init__.py:341 - matplotlib data path: C:\Users\admin\AppData\Local\Programs\Python\Python39\lib\site-packages\matplotlib\mpl-data
+2026-05-16 14:48:55 - matplotlib - DEBUG - __init__.py:341 - CONFIGDIR=C:\Users\admin\.matplotlib
+2026-05-16 14:48:55 - matplotlib - DEBUG - __init__.py:1512 - interactive is False
+2026-05-16 14:48:55 - matplotlib - DEBUG - __init__.py:1513 - platform is win32
+2026-05-16 14:48:55 - matplotlib - DEBUG - __init__.py:341 - CACHEDIR=C:\Users\admin\.matplotlib
+2026-05-16 14:48:55 - matplotlib.font_manager - DEBUG - font_manager.py:1580 - Using fontManager instance from C:\Users\admin\.matplotlib\fontlist-v390.json
+2026-05-16 14:48:56 - metetl.cli - INFO - cli.py:14 - Запуск подготовки JSON из data/MetObjects.csv
