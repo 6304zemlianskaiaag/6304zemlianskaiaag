@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zemlianskaia6304"
+version = "0.1.0"
+description = "ETL инструмент для скачивания и обработки изображений из коллекции MET"
+readme = "README.md"
+authors = [
+    {name = "zemlianskaia", email = "zemlianskaia.anastasia@mail.ru"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "requests>=2.25.0",
+    "opencv-python>=4.5.0",
+    "numpy>=1.21.0",
+    "aiohttp>=3.8.0",
+    "aiofiles>=22.0.0",
+    "matplotlib>=3.5.0",
+    "pandas>=1.3.0",
+    "scipy>=1.7.0",
+]
+
+[project.scripts]
+metetl = "metetl.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
